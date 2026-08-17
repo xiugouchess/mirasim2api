@@ -1,0 +1,12 @@
+.instance.env
+.env
+.env.tmp.*
+data/
+.compose.ports.yml
+.git
+.gitignore
+*.log
+*.zip
+*.tar
+*.tar.gz
+runtime/*.local.json

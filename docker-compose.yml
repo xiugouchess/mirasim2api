@@ -1,0 +1,60 @@
+name: mirasim-${DOCKER_NAME:?run_start_script_to_configure_docker_name}
+
+services:
+  mirasim:
+    build:
+      context: .
+      args:
+        MIRASIM_DMG_URL: ${MIRASIM_DMG_URL:?run_start_script_to_get_latest_dmg}
+      secrets:
+        - mirasim_proxy
+    image: ${MIRASIM_IMAGE:?run_start_script_to_get_latest_image}
+    container_name: mirasim-${DOCKER_NAME:?run_start_script_to_configure_docker_name}
+    restart: unless-stopped
+    network_mode: bridge
+    environment:
+      APP_ROOT: /app
+      MIRASIM_DATA_DIR: /data
+      MIRASIM_HOST: 0.0.0.0
+      MIRASIM_PORT: 4939
+      MIRASIM_INTERNAL_PORT: 4938
+      MIRASIM_RECORD: ${MIRASIM_RECORD:-0}
+      MIRASIM_QUIET: ${MIRASIM_QUIET:-0}
+      MIRASIM_BRIDGE_ENABLED: ${MIRASIM_BRIDGE_ENABLED:-1}
+      MIRASIM_BRIDGE_HOST: 0.0.0.0
+      MIRASIM_CODEX_BRIDGE_WARMUP: ${MIRASIM_CODEX_BRIDGE_WARMUP:-1}
+      MIRASIM_CODEX_KEEP_WARM: ${MIRASIM_CODEX_KEEP_WARM:-1}
+      MIRASIM_CODEX_BRIDGE_WAIT_MS: ${MIRASIM_CODEX_BRIDGE_WAIT_MS:-180000}
+      MIRASIM_CODEX_DEFAULT_MODEL: ${MIRASIM_CODEX_DEFAULT_MODEL:-kimi-k3}
+      MIRASIM_CODEX_DEFAULT_EFFORT: ${MIRASIM_CODEX_DEFAULT_EFFORT:-low}
+      MIRASIM_DISABLE_LOGIN_REFRESH: ${MIRASIM_DISABLE_LOGIN_REFRESH:-1}
+      MIRASIM_BRIDGE_API_KEY: ${MIRASIM_BRIDGE_API_KEY:-password}
+      MIRASIM_UNIFIED_BRIDGE_PORT: 12015
+      MIRASIM_DIRECT_RELAY_PORT: 12016
+      MIRASIM_CODEX_FORWARD_PORT: 12017
+      MIRASIM_CLAUDE_FORWARD_PORT: 12018
+      MIRASIM_PROXY_FILE: /run/secrets/mirasim_proxy
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: 127.0.0.1,localhost,::1
+      no_proxy: 127.0.0.1,localhost,::1
+    expose:
+      - "4939"
+      - "12015"
+      - "12016"
+      - "12017"
+      - "12018"
+    volumes:
+      - ./data:/data
+      - ./runtime:/app/runtime:ro
+    secrets:
+      - source: mirasim_proxy
+        target: mirasim_proxy
+
+secrets:
+  mirasim_proxy:
+    environment: MIRASIM_PROXY

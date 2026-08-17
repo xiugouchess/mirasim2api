@@ -1,0 +1,19 @@
+# Local configuration
+.env
+.instance.env
+.env.tmp.*
+
+# Runtime data
+data/
+*.local.json
+*.log
+
+# Generated Compose configuration
+.compose.ports.yml
+
+# Dependencies and local artifacts
+node_modules/
+*.tar
+*.tar.gz
+*.zip
+.DS_Store

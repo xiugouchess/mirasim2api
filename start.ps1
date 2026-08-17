@@ -1,0 +1,1 @@
+$ErrorActionPreference = 'Stop'`nSet-Location `$PSScriptRoot`n& .\scripts\up.ps1 @args`nexit `$LASTEXITCODE`n
