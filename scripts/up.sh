@@ -97,6 +97,14 @@ fi
 
 bash ./scripts/compose.sh up -d --no-build "$@"
 
+# runtime/ is bind-mounted into the container. When the image and container
+# identity are unchanged, restart the existing process so updated bridge code
+# is loaded without rebuilding the Mirasim image.
+if [ "$#" -eq 0 ] && [ -n "$previous_image_id" ] && [ "$needs_recreate" = "0" ]; then
+  echo "镜像未变化，重启容器以加载映射的 runtime 代码。"
+  bash ./scripts/compose.sh restart mirasim
+fi
+
 cleanup_image=""
 if [ -n "$current_image_ref" ] && [ "$current_image_ref" != "$target_image" ]; then
   cleanup_image=$current_image_ref
