@@ -116,7 +116,9 @@ function probeUniversalBridge(port) {
   return new Promise((resolve) => {
     const req = http.request({ host: '127.0.0.1', port, method: 'GET', path: `/u/${TARGET_ENC}/responses`, timeout: 2000 }, (res) => {
       res.resume();
-      resolve(res.statusCode === 405);
+      // A quota-limited bridge can reject even this probe with the official
+      // 429 response. That still proves the local model bridge is alive.
+      resolve(res.statusCode === 405 || res.statusCode === 429);
     });
     req.on('timeout', () => { req.destroy(); resolve(false); });
     req.on('error', () => resolve(false));
@@ -133,6 +135,10 @@ function probeRouterBridge(port) {
         if (size <= 256 * 1024) chunks.push(Buffer.from(chunk));
       });
       res.on('end', () => {
+        // `/v1/models` is also subject to the account quota. Treating 429 as
+        // "not a bridge" makes every request wait for BRIDGE_WAIT_MS instead
+        // of returning the upstream rate-limit response to the caller.
+        if (res.statusCode === 429) return resolve(true);
         if (res.statusCode !== 200 || size > 256 * 1024) return resolve(false);
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -241,7 +247,17 @@ function forwardHttp({ port, path, method, headers, body }, res) {
       res.writeHead(ur.statusCode || 502, ur.headers);
       ur.pipe(res);
       ur.on('end', resolve);
-      ur.on('error', err => res.headersSent ? res.destroy(err) : reject(err));
+      const fail = (err) => {
+        // Do not leave the caller waiting forever after an upstream reset.
+        // The outer handler will close the already-started response; it must
+        // not retry a request whose headers/body were already sent.
+        reject(err instanceof Error ? err : new Error(String(err || 'upstream response aborted')));
+      };
+      ur.on('aborted', () => fail(new Error('upstream response aborted')));
+      ur.on('close', () => {
+        if (!ur.complete) fail(new Error('upstream response closed before completion'));
+      });
+      ur.on('error', fail);
     });
     up.on('timeout', () => up.destroy(new Error('upstream timeout')));
     up.on('error', err => res.headersSent ? res.destroy(err) : reject(err));
@@ -297,6 +313,10 @@ const server = http.createServer(async (req, res) => {
         : bridge.responsePath;
       await forwardHttp({ port: bridge.port, path: `${responsePath}${url.search || ''}`, method: 'POST', headers: req.headers, body: normalized.body }, res);
     } catch (e) {
+      if (res.headersSent) {
+        if (!res.destroyed) res.destroy(e);
+        return;
+      }
       log('bridge failed, retrying after re-resolve:', e.code || e.message);
       cachedBridge = null;
       bridge = await waitForBridge();
