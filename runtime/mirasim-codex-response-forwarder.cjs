@@ -282,21 +282,29 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (req.method === 'GET' && (url.pathname === '/v1/models' || url.pathname === '/models')) return proxyModels(req, res);
-    if (req.method !== 'POST' || !(url.pathname === '/v1/responses' || url.pathname === '/responses')) {
-      return json(res, 404, { error: { message: 'supported: GET /v1/models, POST /v1/responses' } });
+    const isCompact = url.pathname === '/v1/responses/compact' || url.pathname === '/responses/compact';
+    const isResponses = url.pathname === '/v1/responses' || url.pathname === '/responses';
+    if (req.method !== 'POST' || (!isResponses && !isCompact)) {
+      return json(res, 404, { error: { message: 'supported: GET /v1/models, POST /v1/responses, POST /v1/responses/compact' } });
     }
     const body = await collect(req);
     const normalized = normalizeResponsesRequest(body);
     let bridge = await waitForBridge();
     if (!bridge) return json(res, 503, { error: { message: `Mirasim model-bridge did not become ready within ${BRIDGE_WAIT_MS}ms` } });
     try {
-      await forwardHttp({ port: bridge.port, path: `${bridge.responsePath}${url.search || ''}`, method: 'POST', headers: req.headers, body: normalized.body }, res);
+      const responsePath = isCompact
+        ? (bridge.kind === 'router' ? '/v1/responses/compact' : `${bridge.responsePath}/compact`)
+        : bridge.responsePath;
+      await forwardHttp({ port: bridge.port, path: `${responsePath}${url.search || ''}`, method: 'POST', headers: req.headers, body: normalized.body }, res);
     } catch (e) {
       log('bridge failed, retrying after re-resolve:', e.code || e.message);
       cachedBridge = null;
       bridge = await waitForBridge();
       if (!bridge) return json(res, 503, { error: { message: 'Mirasim model-bridge did not restart' } });
-      await forwardHttp({ port: bridge.port, path: `${bridge.responsePath}${url.search || ''}`, method: 'POST', headers: req.headers, body: normalized.body }, res);
+      const responsePath = isCompact
+        ? (bridge.kind === 'router' ? '/v1/responses/compact' : `${bridge.responsePath}/compact`)
+        : bridge.responsePath;
+      await forwardHttp({ port: bridge.port, path: `${responsePath}${url.search || ''}`, method: 'POST', headers: req.headers, body: normalized.body }, res);
     }
   } catch (e) {
     log('request failed:', e.stack || e.message || String(e));

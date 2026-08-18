@@ -49,7 +49,8 @@ function collect(req) {
   });
 }
 function routeBase(pathname) {
-  if (pathname === '/v1/responses' || pathname === '/responses') return CODEX_BASE;
+  if (pathname === '/v1/responses' || pathname === '/responses'
+    || pathname === '/v1/responses/compact' || pathname === '/responses/compact') return CODEX_BASE;
   return CLAUDE_BASE;
 }
 function normalizePath(pathname) {
