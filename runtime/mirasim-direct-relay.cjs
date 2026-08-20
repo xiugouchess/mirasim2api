@@ -294,6 +294,22 @@ function normalizePath(reqUrl) {
   }
   return { pathname, search: u.search || '', upstreamUrl: authDoc.relay.baseURL + pathname + (u.search || '') };
 }
+function normalizeClaudeBody(pathname, body) {
+  if (pathname !== '/v1/messages' || body.length === 0) return body;
+  let payload;
+  try { payload = JSON.parse(body.toString('utf8')); } catch { return body; }
+  if (!payload || typeof payload !== 'object' || !Object.prototype.hasOwnProperty.call(payload, 'thinking')) return body;
+  // The current Mirasim relay rejects Anthropic's top-level thinking option.
+  delete payload.thinking;
+  return Buffer.from(JSON.stringify(payload), 'utf8');
+}
+async function sendUpstream(req, route, body) {
+  const token = await mintTicketIfNeeded();
+  const headers = buildForwardHeaders(req, token, body, route.pathname);
+  const init = { method: req.method, headers };
+  if (!['GET','HEAD'].includes((req.method || 'GET').toUpperCase())) init.body = body;
+  return fetch(route.upstreamUrl, init);
+}
 async function handle(req, res) {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -319,14 +335,19 @@ async function handle(req, res) {
   }
   if (!checkInboundAuth(req)) return json(res, 401, { error: { message: 'invalid inbound api key' } });
 
-  const body = ['GET','HEAD'].includes((req.method || 'GET').toUpperCase()) ? Buffer.alloc(0) : await collectBody(req);
   const route = normalizePath(req.url);
-  const token = await mintTicketIfNeeded();
-  const headers = buildForwardHeaders(req, token, body, route.pathname);
-  const init = { method: req.method, headers };
-  if (!['GET','HEAD'].includes((req.method || 'GET').toUpperCase())) init.body = body;
-
-  const upstream = await fetch(route.upstreamUrl, init);
+  const rawBody = ['GET','HEAD'].includes((req.method || 'GET').toUpperCase()) ? Buffer.alloc(0) : await collectBody(req);
+  const body = normalizeClaudeBody(route.pathname, rawBody);
+  let upstream = await sendUpstream(req, route, body);
+  // The relay answers 401 when the signed ticket is rejected, and the pool
+  // behind it can answer 403 for a freshly minted ticket. Both clear up after
+  // re-minting, so retry once. A still-failing status is passed through.
+  if (upstream.status === 401 || upstream.status === 403) {
+    log(`upstream ${upstream.status}; clearing cached relay ticket and retrying once`);
+    upstream.body?.cancel().catch(() => {});
+    ticketState = null;
+    upstream = await sendUpstream(req, route, body);
+  }
   const responseHeaders = {};
   upstream.headers.forEach((v, k) => {
     const lk = k.toLowerCase();
