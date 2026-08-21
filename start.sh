@@ -161,4 +161,6 @@ set_env_value MIRASIM_IMAGE "$image"
 
 echo "最新版本: $version"
 echo "容器名称: mirasim-$docker_name"
+echo "Web 端口: $(get_env_value MIRASIM_WEB_HOST_PORT | trim)"
+echo "桥接端口: $(get_env_value MIRASIM_UNIFIED_HOST_PORT | trim)"
 exec bash ./scripts/up.sh "$@"
