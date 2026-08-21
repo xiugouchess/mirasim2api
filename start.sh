@@ -90,28 +90,28 @@ case "$proxy_url" in
     ;;
 esac
 
-echo "正在从 https://mirasim.ai/ 检查最新版本..."
+echo "正在从 https://mirasim.ai/download 检查最新版本..."
 release_versions=()
 release_urls=()
 for attempt in 1 2 3; do
   cache_buster="$(date +%s)-${RANDOM}-${attempt}"
-  if ! homepage=$(curl -q -fsSL "${mirasim_curl_proxy_args[@]}" \
+  if ! download_page=$(curl -q -fsSL "${mirasim_curl_proxy_args[@]}" \
     --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30 \
     -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' \
-    "https://mirasim.ai/?docker-release-check=${cache_buster}"); then
+    "https://mirasim.ai/download?docker-release-check=${cache_buster}"); then
     continue
   fi
 
   candidate_url=$(
     awk '
       BEGIN { RS = "<a" }
-      /class="[^"]*dl-split-main[^"]*"/ && /Mirasim-[0-9.]+-arm64\.dmg/ {
+      /class="[^"]*dl-plat[^"]*"/ && /Mirasim-[0-9.]+-arm64\.dmg/ {
         if (match($0, /href="[^"]*Mirasim-[0-9.]+-arm64\.dmg"/)) {
           print substr($0, RSTART + 6, RLENGTH - 7)
           exit
         }
       }
-    ' <<< "$homepage"
+    ' <<< "$download_page"
   )
 
   case "$candidate_url" in
@@ -129,7 +129,7 @@ for attempt in 1 2 3; do
 done
 
 if [ "${#release_urls[@]}" -eq 0 ]; then
-  echo "未能从官网的 dl-split-main 下载链接解析 Mirasim ARM64 DMG。" >&2
+  echo "未能从官网的 dl-plat 下载链接解析 Mirasim ARM64 DMG。" >&2
   exit 1
 fi
 
