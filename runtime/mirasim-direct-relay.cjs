@@ -18,6 +18,9 @@ const DEFAULT_LOGIN_BASE = 'https://admin.test.mirofish.ai';
 const CLIENT_HEADER = process.env.MIRASIM_CLIENT_HEADER || '';
 const DISABLE_LOGIN_REFRESH = String(process.env.MIRASIM_DISABLE_LOGIN_REFRESH ?? '1') !== '0';
 const LIVE_SETTING_FILE = process.env.MIRASIM_LIVE_SETTING_FILE || (process.env.MIRASIM_HOME ? path.join(process.env.MIRASIM_HOME, 'setting.json') : '');
+const CLAUDE_CLI_VERSION = process.env.MIRASIM_CLAUDE_CLI_VERSION || '';
+const CLAUDE_SDK_VERSION = process.env.MIRASIM_CLAUDE_SDK_VERSION || '';
+const SESSION_ID = crypto.randomUUID();
 
 let ticketState = null;
 let mintInFlight = null;
@@ -167,6 +170,10 @@ function signHeaders(method, pathname, body) {
     'x-mirasim-sig': sig,
   };
   if (CLIENT_HEADER) h['x-mirasim-client'] = CLIENT_HEADER;
+  if (pathname === '/v1/messages') {
+    h['x-mirasim-session'] = SESSION_ID;
+    h['x-mirasim-agent'] = 'claude';
+  }
   return h;
 }
 async function refreshAccessTokenIfNeeded() {
@@ -272,6 +279,25 @@ function collectBody(req) {
   });
 }
 const hopByHop = new Set(['host','connection','keep-alive','proxy-authenticate','proxy-authorization','te','trailer','transfer-encoding','upgrade','content-length']);
+// Claude Code sends this set on every /v1/messages call. The relay forwards the
+// caller's headers untouched, so a caller that is not the CLI is visible to it.
+// Present the CLI's own shape instead.
+function claudeClientHeaders() {
+  const out = {
+    'user-agent': `claude-cli/${CLAUDE_CLI_VERSION} (external, sdk-cli)`,
+    'x-app': 'cli',
+    'x-claude-code-session-id': SESSION_ID,
+    'x-stainless-lang': 'js',
+    'x-stainless-runtime': 'node',
+    'x-stainless-runtime-version': process.version,
+    'x-stainless-arch': process.arch === 'arm64' ? 'arm64' : 'x64',
+    'x-stainless-os': 'Linux',
+    'x-stainless-retry-count': '0',
+    'anthropic-dangerous-direct-browser-access': 'true',
+  };
+  if (CLAUDE_SDK_VERSION) out['x-stainless-package-version'] = CLAUDE_SDK_VERSION;
+  return out;
+}
 function buildForwardHeaders(req, token, body, pathname) {
   const out = {};
   for (const [k, v] of Object.entries(req.headers)) {
@@ -280,6 +306,9 @@ function buildForwardHeaders(req, token, body, pathname) {
     if (lk === 'authorization' || lk === 'x-api-key') continue;
     if (lk.startsWith('x-mirasim-')) continue;
     out[lk] = Array.isArray(v) ? v.join(', ') : String(v);
+  }
+  if (pathname === '/v1/messages' && CLAUDE_CLI_VERSION) {
+    Object.assign(out, claudeClientHeaders());
   }
   out.authorization = 'Bearer ' + token;
   Object.assign(out, signHeaders(req.method || 'GET', pathname, body));

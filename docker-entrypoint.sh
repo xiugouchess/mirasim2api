@@ -37,6 +37,24 @@ export MIRASIM_RESOURCES="$RES"
 export NODE_PATH="$RES/node_modules:${NODE_PATH:-}"
 export MIRASIM_CODEX_BIN=${MIRASIM_CODEX_BIN:-/usr/local/bin/codex}
 export MIRASIM_CLAUDE_BIN=${MIRASIM_CLAUDE_BIN:-/usr/local/bin/claude}
+MIRASIM_APP_VERSION=$(RES="$RES" node -e '
+const fs = require("fs");
+const res = process.env.RES;
+try {
+  const b = fs.readFileSync(res + "/app.asar");
+  const dir = JSON.parse(b.slice(16, 16 + b.readUInt32LE(12)).toString("utf8").replace(/\0+$/, ""));
+  const base = 8 + b.readUInt32LE(4);
+  const f = dir.files["package.json"];
+  const v = JSON.parse(b.slice(base + Number(f.offset), base + Number(f.offset) + f.size).toString("utf8")).version;
+  if (/^[0-9]+(\.[0-9]+)+$/.test(v)) { console.log(v); process.exit(0); }
+} catch {}
+// The bundle keeps the version inlined behind an obfuscated alias.
+const m = fs.readFileSync(res + "/server.cjs", "utf8").match(/=(?:\x27|")([0-9]+(?:\.[0-9]+)+)(?:\x27|")\?\.\[\x27trim\x27\]/);
+if (m) console.log(m[1]);
+' 2>/dev/null)
+CLAUDE_CLI_VERSION=$("$MIRASIM_CLAUDE_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+CLAUDE_SDK_VERSION=$(node -e "try{console.log(require('/usr/local/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/sdk/package.json').version)}catch{}" 2>/dev/null)
+export MIRASIM_APP_VERSION CLAUDE_CLI_VERSION CLAUDE_SDK_VERSION
 export NO_PROXY="127.0.0.1,localhost,::1${NO_PROXY:+,$NO_PROXY}"
 export no_proxy="127.0.0.1,localhost,::1${no_proxy:+,$no_proxy}"
 export MIRASIM_PUBLIC_PORT=${MIRASIM_PUBLIC_PORT:-${MIRASIM_PORT:-4939}}
@@ -60,13 +78,14 @@ if [ ! -f "$AUTH_EXPORT" ] && [ -f "$AUTH_SEED" ]; then
 fi
 
 if [ -f "$AUTH_EXPORT" ]; then
-  AUTH_EXPORT="$AUTH_EXPORT" MIRASIM_HOME="$MIRASIM_HOME" CODEX_HOME="$CODEX_HOME" DATA="$DATA" node <<'NODE'
+  AUTH_EXPORT="$AUTH_EXPORT" MIRASIM_HOME="$MIRASIM_HOME" CODEX_HOME="$CODEX_HOME" DATA="$DATA" MIRASIM_APP_VERSION="$MIRASIM_APP_VERSION" node <<'NODE'
 const fs = require('fs');
 const path = require('path');
 const authPath = process.env.AUTH_EXPORT;
 const home = process.env.MIRASIM_HOME;
 const codexHome = process.env.CODEX_HOME;
 const data = process.env.DATA;
+const appVersion = process.env.MIRASIM_APP_VERSION || '0.0.150';
 const doc = JSON.parse(fs.readFileSync(authPath, 'utf8'));
 fs.mkdirSync(home, { recursive: true });
 fs.mkdirSync(codexHome, { recursive: true });
@@ -86,8 +105,8 @@ const setting = {
   agent_accounts: [],
   current_agent_account: {},
   failover: { enabled: true, manualKey: '', threshold: 0.95, on5h: true, on7d: true, reactive: true, always: true },
-  onboarding: { seenVersion: '0.0.150' },
-  version: '0.0.150',
+  onboarding: { seenVersion: appVersion },
+  version: appVersion,
   mirachannelToken: '',
   mirachannelNodeId: '',
   mirachannelE2eKey: '',
@@ -136,6 +155,9 @@ if [ "${MIRASIM_BRIDGE_ENABLED:-1}" != "0" ]; then
     MIRASIM_LIVE_SETTING_FILE="$MIRASIM_HOME/setting.json" \
     MIRASIM_DIRECT_RELAY_HOST=127.0.0.1 \
     MIRASIM_DIRECT_RELAY_PORT="$DIRECT_PORT" \
+    MIRASIM_CLIENT_HEADER="${MIRASIM_CLIENT_HEADER:-$MIRASIM_APP_VERSION}" \
+    MIRASIM_CLAUDE_CLI_VERSION="$CLAUDE_CLI_VERSION" \
+    MIRASIM_CLAUDE_SDK_VERSION="$CLAUDE_SDK_VERSION" \
     node "$APP_ROOT/runtime/mirasim-direct-relay.cjs"
 
   start_node_loop mirasim-codex-forwarder env \
