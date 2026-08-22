@@ -53,7 +53,35 @@ const m = fs.readFileSync(res + "/server.cjs", "utf8").match(/=(?:\x27|")([0-9]+
 if (m) console.log(m[1]);
 ' 2>/dev/null)
 CLAUDE_CLI_VERSION=$("$MIRASIM_CLAUDE_BIN" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
-CLAUDE_SDK_VERSION=$(node -e "try{console.log(require('/usr/local/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai/sdk/package.json').version)}catch{}" 2>/dev/null)
+# The Anthropic SDK is compiled into the claude binary, so its version is only
+# observable from a request the CLI makes. Ask it once against a local probe.
+CLAUDE_SDK_VERSION=$(
+  MIRASIM_CLAUDE_BIN="$MIRASIM_CLAUDE_BIN" node -e '
+const http = require("node:http");
+const { spawn } = require("node:child_process");
+const server = http.createServer((req, res) => {
+  const v = req.headers["x-stainless-package-version"];
+  if (v) { process.stdout.write(String(v)); done(); }
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end("{}");
+});
+let finished = false;
+function done() { if (finished) return; finished = true; try { child?.kill("SIGKILL"); } catch {} server.close(); process.exit(0); }
+let child = null;
+const timer = setTimeout(done, 25000);
+timer.unref();
+server.listen(0, "127.0.0.1", () => {
+  const base = "http://127.0.0.1:" + server.address().port;
+  child = spawn(process.env.MIRASIM_CLAUDE_BIN, ["-p", "probe", "--model", "claude-haiku-4-5"], {
+    stdio: "ignore",
+    env: { ...process.env, HOME: "/tmp/mirasim-sdk-probe", ANTHROPIC_BASE_URL: base,
+           ANTHROPIC_API_KEY: "probe", ANTHROPIC_AUTH_TOKEN: "probe",
+           CLAUDE_CODE_SKIP_AUTH_LOGIN: "1", IS_SANDBOX: "1" },
+  });
+  child.on("exit", () => setTimeout(done, 500));
+});
+' 2>/dev/null
+)
 export MIRASIM_APP_VERSION CLAUDE_CLI_VERSION CLAUDE_SDK_VERSION
 export NO_PROXY="127.0.0.1,localhost,::1${NO_PROXY:+,$NO_PROXY}"
 export no_proxy="127.0.0.1,localhost,::1${no_proxy:+,$no_proxy}"
